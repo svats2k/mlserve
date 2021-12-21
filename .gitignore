@@ -130,3 +130,7 @@ dmypy.json
 
 # venv
 venv*/*
+
+# data
+*.jpeg
+*.jpg
