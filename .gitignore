@@ -134,3 +134,6 @@ venv*/*
 # data
 *.jpeg
 *.jpg
+
+# PyTorch Models
+*.pth

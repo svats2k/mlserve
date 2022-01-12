@@ -6,8 +6,8 @@ from http import HTTPStatus
 import json
 from pydantic import BaseModel
 
-from feature_vectors_generation import config
-from feature_vectors_generation import utils
+import config
+import utils
 
 
 app = FastAPI(

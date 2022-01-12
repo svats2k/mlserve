@@ -2,7 +2,7 @@ import os
 import logging
 import logging.config
 
-from feature_vectors_generation import utils
+import feature_vector_generation.utils as utils
 
 # Directories
 BASE_DIR = os.getcwd()  # project root
