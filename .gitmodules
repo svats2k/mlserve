@@ -1,3 +1,0 @@
-[submodule "img2vec"]
-	path = img2vec
-	url = git@github.com:svats2k/img2vec.git
