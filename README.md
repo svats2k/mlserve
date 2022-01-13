@@ -1,7 +1,7 @@
 # PyTorch model serving experiments
 
 As a precursor to writing a blog, I would like to document the development of 
-various deployments options for Pytorch model which generates a feature vector 
+various deployments options for a Pytorch model which generates a feature vector 
 based on a resnet-18 model.
 
 The following options are being experimented on:
