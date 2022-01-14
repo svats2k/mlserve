@@ -2,12 +2,12 @@
 rm -rf logs
 
 if [ $1 = 'regenmar' ]; then
-torch-model-archiver --model-name resnet18 \
---version 1.0 \
---serialized-file resnet18.pth \
---extra-files ./FVHandler.py \
---handler ./serve_handle.py  \
---export-path model_store -f
+    torch-model-archiver --model-name resnet18 \
+    --version 1.0 \
+    --serialized-file resnet18.pth \
+    --extra-files ./FVHandler.py \
+    --handler ./serve_handle.py  \
+    --export-path model_store -f
 else
     echo "Not regenrating mar file"
 fi
@@ -25,9 +25,3 @@ fi
 # -v ${PWD}/config.properties:/home/model-server/config.properties  \
 # pytorch/torchserve:latest-gpu torchserve --start --model-store model-store \
 # --models resnet18=resnet18.mar --ts-config config.properties
-
-# aws DLC
-docker run --rm -it --name torchserve -v ${PWD}:/tmp/ -p 8080:8080  -p 8081:8081 \
-763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:1.10.0-cpu-py38-ubuntu20.04-e3 \
-torchserve --start --model-store /tmp/model_store \
---models resnet18=resnet18.mar --ts-config /tmp/config.properties

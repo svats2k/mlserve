@@ -1,11 +1,14 @@
-from FVHandler import FVHandler, FVHandlerBatch
+from FVHandler import FVHandler, FVHandlerSingle#FVHandlerBatch,
 
-_service = FVHandlerBatch()
+#_service = FVHandlerBatch()
+_service = FVHandlerSingle()
 
 def handle(data, context):
     if not _service.initialized:
         _service.initialize(context)
         
+    print("Inside the handle function")
+
     if data is None:
         return None
     
