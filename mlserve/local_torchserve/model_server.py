@@ -71,7 +71,8 @@ def launch_docker_server(
 model_name:str=typer.Option('resnet18', "-mn", help="Model name"),
     model_mar:str=typer.Option('resnet18.mar', "-mm", help="Model .mar file"),
     model_store:str=typer.Option('model_store', "-ms", help="Model Store location"),
-    ts_config_file:str=typer.Option('config.properties', "-ts", help="TS config file")
+    ts_config_file:str=typer.Option('config.properties', "-ts", help="TS config file"),
+    docker_image:str=typer.Option('pytorch/torchserve:latest-cpu', "-di", help="docker image")
 ) -> None:
     subprocess.run(shlex.split("rm -rf ./logs"))
     mar_file = Path(f"{model_store}/{model_mar}")
@@ -81,12 +82,13 @@ model_name:str=typer.Option('resnet18', "-mn", help="Model name"),
     docker_cmd = f"docker run --rm -it -p 8080:8080 -p 8081:8081 --name tsrv  \
                     -v {cwd}/model_store:/home/model-server/model_store \
                     -v {cwd}/config.properties:/home/model-server/config.properties \
-                    pytorch/torchserve:latest-cpu "
+                    763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:1.10.0-cpu-py38-ubuntu20.04-e3 "
+                    #pytorch/torchserve:latest-cpu "
 
     launch_cmd = docker_cmd + f"torchserve --start --foreground \
-                    --model-store {model_store} \
+                    --model-store /home/model-server/{model_store} \
                     --models {model_name}={model_mar} \
-                    --ts-config {ts_config_file}"
+                    --ts-config /home/model-server/{ts_config_file}"
                     
     if mar_file.exists():
         subprocess.run(shlex.split(launch_cmd))

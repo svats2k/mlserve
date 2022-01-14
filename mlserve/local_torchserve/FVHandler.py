@@ -61,11 +61,11 @@ class FVHandler(BaseHandler):
             self.scaler,
             self.normalize
         ])
-        
+
         self._activation = {}
-        
+
     def initialize(self, context):
-        
+
         properties = context.system_properties
         properties['limit_max_image_pixels'] = False
         if torch.cuda.is_available():
@@ -84,7 +84,7 @@ class FVHandler(BaseHandler):
         self.model = self.model.to(self.device)
         
         self.initialized = True
-        
+
     def save_output_hook(self, layer_id : str) -> Callable:
         def hook(model: nn.Module, input: torch.Tensor, output: torch.Tensor):
             self._activation[layer_id] = output.detach()
