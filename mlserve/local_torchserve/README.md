@@ -6,7 +6,7 @@ with one of the following files from https://github.com/pytorch/serve/tree/maste
 1. 
 
 
-Please take a look at (here)[https://github.com/pytorch/serve/blob/master/README.md#serve-a-model] for 
+Please take a look at torchserve documentation [here](https://github.com/pytorch/serve/blob/master/README.md#serve-a-model) for 
 additional documentation
 #### Creating a model file from torchvision repo
 
