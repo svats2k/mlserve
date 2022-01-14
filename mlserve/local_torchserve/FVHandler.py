@@ -16,6 +16,7 @@ from torch import nn
 import torchvision.transforms as transforms
 from ts.torch_handler.base_handler import BaseHandler
 
+from mlserve.common.misc import uncompress_nparr, compress_nparr, stopwatch
 
 # Setting logger
 logger = logging.getLogger(__name__)
@@ -35,33 +36,6 @@ logger = logging.getLogger(__name__)
 #shell_formatter = logging.Formatter(FMT_SHELL)
 #shell_handler.setFormatter(shell_formatter)
 #logger.addHandler(shell_handler)
-
-def compress_nparr(nparr: np.ndarray) -> Tuple[bytes, int, int]:
-    """
-    Returns the given numpy array as compressed bytestring,
-    the uncompressed and the compressed byte size.
-    """
-    bytestream = io.BytesIO()
-    np.save(bytestream, nparr)
-    uncompressed = bytestream.getvalue()
-    compressed = zlib.compress(uncompressed)
-    return compressed, len(uncompressed), len(compressed)
-
-def uncompress_nparr(bytestring: bytes) -> np.ndarray:
-    """
-    """
-    return np.load(io.BytesIO(zlib.decompress(bytestring)))
-
-def timeit(func: Callable) -> Callable:
-    @wraps(func)
-    def timed_func(*args, **kwargs):
-        start_time = time.time()
-        func_output = func(*args, **kwargs)
-        end_time = time.time()
-        logger.info(f"function {func.__name__} exec time: {end_time-start_time}")
-        return func_output
-    return timed_func
-
 
 class FVHandler(BaseHandler):
 
@@ -131,7 +105,7 @@ class FVHandlerBatch(FVHandler):
     def __init__(self):
         super().__init__()
 
-    @timeit
+    @stopwatch
     def preprocess(self, data) -> np.ndarray:
         logger.info(f"incoming data type: {type(data)}, incoming length: {len(data)}")
         images_batch = []
@@ -145,7 +119,7 @@ class FVHandlerBatch(FVHandler):
 
         return images_batch
 
-    @timeit
+    @stopwatch
     def inference(self, image_batches: List[torch.Tensor], *args, **kwargs) -> np.ndarray:
         
         feature_vectors_list = []
@@ -161,7 +135,7 @@ class FVHandlerBatch(FVHandler):
 
         return feature_vectors_list
 
-    @timeit
+    @stopwatch
     def postprocess(self, data: List[np.ndarray]) -> List[str]:
         
         comp_byte_string_list = []
@@ -203,7 +177,7 @@ class FVHandlerSingle(BaseHandler):
         
         self._activation = {}
         
-    @timeit
+    @stopwatch
     def preprocess(self, data) -> np.ndarray:
         logger.info(f"data type: {type(data)}, length: {len(data)}")
         compressed_byte_string = data[0].get('data') or data[0].get('body')
@@ -213,7 +187,7 @@ class FVHandlerSingle(BaseHandler):
         images = images.to(device=self.device, dtype=torch.float32)
         return images
 
-    @timeit
+    @stopwatch
     def inference(self, img_data: torch.Tensor, *args, **kwargs) -> np.ndarray:
         h = self.extraction_layer.register_forward_hook(self.save_output_hook('fvec'))
         with torch.no_grad():
@@ -222,7 +196,7 @@ class FVHandlerSingle(BaseHandler):
 
         return self._get_feature_vectors()
 
-    @timeit
+    @stopwatch
     def postprocess(self, data: np.ndarray) -> List[str]:
         compressed_byte_string, _, _ = compress_nparr(data)
         logger.info(type(compressed_byte_string))
