@@ -148,3 +148,6 @@ venv*/*
 
 # notebooks folder - meant only for local usage
 notebooks/*
+
+# scratch folder
+**/scratch/*
