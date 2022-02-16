@@ -138,6 +138,7 @@ venv*/*
 # PyTorch Models
 *.pth
 **/*.mar
+**/*.tar.gz
 
 # Ignoring local torchserve installation
 **/torchserve_local/*
