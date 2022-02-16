@@ -142,6 +142,8 @@ venv*/*
 # Ignoring local torchserve installation
 **/torchserve_local/*
 
-
 #vscde
 *code-workspace
+
+# notebooks folder - meant only for local usage
+notebooks/*

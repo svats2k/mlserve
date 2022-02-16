@@ -1,6 +1,6 @@
 import io
 import zlib
-from time import time
+import time
 from functools import wraps
 from typing import Callable, Tuple
 from pathlib import Path
@@ -11,15 +11,17 @@ import torch
 from torchvision import models
 
 from mlserve.common.logger import logger
+from sagemaker.serializers import NumpySerializer
+from sagemaker.deserializers import NumpyDeserializer
 
 def stopwatch(func:Callable) -> Callable:
     @wraps(func)
     def wrapped_func(*args, **kwargs):
-        start_time = time()
+        start_time = time.perf_counter()
         result = func(*args, **kwargs)
-        end_time = time()
+        elapsed_time = time.perf_counter() - start_time
 
-        logger.info(f"Time taken for {wrapped_func.__name__}'s execution: {round(end_time-start_time, 3)} seconds")
+        logger.info(f"Time taken for {wrapped_func.__name__}'s execution: {elapsed_time:.2f} seconds")
 
         return result
     return wrapped_func
@@ -48,3 +50,6 @@ def compress_nparr(nparr: np.ndarray) -> Tuple[bytes, int, int]:
 
 def uncompress_nparr(bytestring: bytes) -> np.ndarray:
     return np.load(io.BytesIO(zlib.decompress(bytestring)))
+
+def serialize_sgm_naprr(nparr: np.ndarray) -> bytes:
+    return NumpySerializer().serialize(nparr)
