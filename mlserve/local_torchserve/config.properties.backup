@@ -1,0 +1,18 @@
+inference_address=http://0.0.0.0:8080
+management_address=http://0.0.0.0:8081
+metrics_address=http://0.0.0.0:8082
+job_queue_size=100
+load_models=resnet18.mar
+models={\
+  "resnet18": {\
+    "1.0": {\
+        "defaultVersion": true,\
+        "marName": "resnet18.mar",\
+        "minWorkers": 1,\
+        "maxWorkers": 1,\
+        "batchSize": 1,\
+        "maxBatchDelay": 500,\
+        "responseTimeout": 1200\
+    }\
+  }\
+}
