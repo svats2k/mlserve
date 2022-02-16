@@ -1,0 +1,7 @@
+FROM 763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:1.10.0-cpu-py38
+
+
+RUN pip uninstall -y sagemaker_pytorch_serving_container
+RUN python -m pip install git+https://github.com/svats2k/sagemaker-pytorch-inference-toolkit
+
+RUN apt-get update && apt-get install -y less

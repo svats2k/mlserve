@@ -7,6 +7,8 @@ from pathlib import Path
 from io import BytesIO
 from PIL import Image
 import numpy as np
+from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 from botocore.exceptions import ClientError
@@ -183,20 +185,27 @@ class FVecsRealTime():
         logger.info(f'Setting up end point: {self.endpoint_name}')
         self.create_endpoint()
 
-    def deploy_endpoint(self) -> None:
+    def deploy_endpoint(self, batch_size:int, num_min_workers:int, num_max_workers:int) -> None:
         env_variables_dict = {
-            "SAGEMAKER_TS_BATCH_SIZE": "3",
+            "SAGEMAKER_TS_MIN_WORKERS": num_min_workers.__str__(),
+            "SAGEMAKER_TS_MAX_WORKERS": num_max_workers.__str__(),
+            "SAGEMAKER_TS_BATCH_SIZE": batch_size.__str__(),
             "SAGEMAKER_TS_MAX_BATCH_DELAY": "100000"
         }
         
+        logger.info(f"Deployment config: {env_variables_dict}")
+
         self.pytorch_model = PyTorchModel(
             model_data=self.model_uri,
             role=self.role,
-            source_dir="code",
+            image_uri=self.image_uri,
+            #source_dir="code",
             framework_version=self.framework_version,
             entry_point="inference.py",
             env=env_variables_dict
         )
+        
+        logger.info(f"Deploying the model at {self.instance_type}")
         
         self.predictor = self.pytorch_model.deploy(
                             initial_instance_count=1,
@@ -205,8 +214,20 @@ class FVecsRealTime():
                             deserializer=NumpyDeserializer()
                             )
 
-    def deploym_predict(self):
-        return NotImplementedError
+    def deploym_predict(self, frms: np.array, mthreading:bool=False) -> np.ndarray:
+        fvecs_list = []
+        
+        if mthreading:
+            with ThreadPoolExecutor() as executor:
+                fvecs_list:List[np.ndarray] = list(executor.map(lambda frm: self.predictor.predict(np.expand_dims(frm, axis=0).astype(np.float32)), frms))
+        else:
+            pbar = tqdm(enumerate(frms), total=frms.shape[0], desc="Pinging endpoint")
+            for idx, frm in pbar:
+                fvecs_list.append(self.predictor.predict(np.expand_dims(frm, axis=0).astype(np.float32)))
+
+        self.predictor.delete_endpoint()
+
+        return np.array(fvecs_list)
 
     def create_pred_client(self):
         logger.info("Creating Sagemaker runtime client")
@@ -277,18 +298,38 @@ class FVecsRealTime():
 
 @app.command()
 def main(
+    model_name:Optional[str]=typer.Option(None, "-name", help="Model name"),
     vid_loc:Optional[Path]=typer.Option(None,"-i", help="Input Video file", exists=True),
+    local_model:bool=typer.Option(False, "-local", help="Launching local server"),
+    docker_image:Optional[str]=typer.Option(None, "-img", help="docker image name"),
     launch_fresh:bool=typer.Option(False, "-lf", help="clean up sagemaker"),
     launch_model:bool=typer.Option(False, "-lm", help="launch model on sagemaker"),
     get_preds:bool=typer.Option(False, "-gp", help="get predictions"),
-    get_preds_batch:bool=typer.Option(False, "-gpb", help="get batch predictions")
+    get_preds_batch:bool=typer.Option(False, "-gpb", help="get batch predictions"),
+    check_pytorch_deploy:bool=typer.Option(False, "-cpd", help="Check pytorch deployment"),
+    batch_size:int=typer.Option(1, "-bs", help="Batch size"),
+    num_min_workers:int=typer.Option(1, "-minw", help="Num min workers"),
+    num_max_workers:int=typer.Option(1, "-maxw", help="Num max workers")
 ):
     #mserver = FVecsRealTime(local_model=True, image_uri="pytorch-local:latest")
-    mserver = FVecsRealTime(
-        model_name='fvecs-resnet18',
-        model_s3_path="s3://amagitornado-test/Models/resnet18-fvecs/model.tar.gz",
-        local_model=False
-    )
+    
+    if local_model and not check_pytorch_deploy:
+        logger.error("local model only supported for pytorch deployment")
+        raise typer.Exit()
+    
+    if model_name is None:
+        model_name = 'fvecs-resnet18'
+
+    server_config = {
+        'model_name' : model_name,
+        'model_s3_path' : 's3://amagitornado-test/Models/resnet18-fvecs/model.tar.gz',
+        'local_model' : local_model
+    }
+    
+    if docker_image is not None:
+        server_config.update({'image_uri' : docker_image})
+
+    mserver = FVecsRealTime(**server_config)
     
     if launch_fresh:
         logger.info(f"Deleting resources associated with {mserver.model_name}")
@@ -322,6 +363,27 @@ def main(
         logger.info(f"Time taken: {elapsed:0.2f} seconds")
 
         logger.info(f"Returned np arr shape: {preds.shape}")
+        
+    if check_pytorch_deploy:
+        if vid_loc is None or not vid_loc.exists():
+            logger.error("Need to give a valid video input path")
+            raise typer.Exit()
+
+        vr = VideoReader(vid_loc.resolve().__str__())
+        np_array = vr.get_batch(range(1700)).asnumpy()
+        
+        start_serv_bringup = time.perf_counter()
+        if num_max_workers < num_min_workers:
+            num_max_workers = num_min_workers
+        mserver.deploy_endpoint(batch_size, num_min_workers, num_max_workers)
+        elapsed_time = time.perf_counter() - start_serv_bringup
+        logger.info(f"Time taken for server bring up: {elapsed_time:.2f}")
+        
+        start_predict = time.perf_counter()
+        #preds = mserver.deploym_predict(np_array)
+        preds = mserver.deploym_predict_thread(np_array)
+        elapsed_time = time.perf_counter() - start_predict
+        logger.info(f"Got back preds ({preds.shape}) in {elapsed_time:.2f} seconds")
 
 if __name__ == '__main__':
     app()
