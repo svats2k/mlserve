@@ -1,9 +1,13 @@
 from __future__ import absolute_import
 
+import time
 import os
 import logging
 from typing import Callable
 
+from pathlib import Path
+
+from PIL import Image
 import numpy as np
 
 import torch
@@ -26,68 +30,59 @@ logger.setLevel(logging.DEBUG)
 
 def model_fn(model_dir):
     try:
-        logger.info('model_fn')
         device = "cuda" if torch.cuda.is_available() else "cpu"
         model = resnet18(pretrained=True)
-
-        with open(os.path.join(model_dir, 'resnet18.pth'), 'rb') as f:
+        model_path = os.path.join(model_dir, 'model.pth')
+        with open(model_path, 'rb') as f:
+            logger.info("-I- model loaded from ", model_path)
             model.load_state_dict(torch.load(f))
-            
+
         model.to(device=device)
         model.eval()
+        logger.info("-I- loaded model resnet18")
         return model
     except Exception as e:
         logger.exception(f"Exception in model fn {e}")
     
-def input_fn(input_data, content_type) -> torch.Tensor:
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    np_array = decoder.decode(input_data, content_type)
-    
-    scaler = transforms.Resize((224, 224))
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                              std=[0.229, 0.224, 0.225])
-    to_tensor = transforms.ToTensor()
-        
-    transform = transforms.Compose([
-        to_tensor,
-        scaler,
-        normalize
-    ])
-
-    images = torch.stack([transform(img_np) for img_np in np_array])
-    torch_arr = images.to(device=device, dtype=torch.float32)
-
-    return torch_arr
 
 def predict_fn(input_data: torch.Tensor, model: nn.Module):
 
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
     activation = {}
 
-    def save_output_hook(self, layer_id : str) -> Callable:
+    def save_output_hook(layer_id : str) -> Callable:
         def hook(model: nn.Module, input: torch.Tensor, output: torch.Tensor):
             activation[layer_id] = output.detach()
         return hook
 
     extraction_layer = model._modules.get('avgpool')
 
+    try:
+        np_array = input_data.numpy()
+        scaler = transforms.Resize((224, 224))
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                              std=[0.229, 0.224, 0.225])
+        to_tensor = transforms.ToTensor()
+        
+        transform = transforms.Compose([
+            scaler,
+            to_tensor,
+            normalize
+        ])
+
+        images = torch.stack([transform(Image.fromarray(img_np.astype(np.float32), mode='RGB')) for img_np in np_array])
+        torch_arr = images.to(device=device, dtype=torch.float32)
+    except Exception as e:
+        logger.exception(f"Exception in predict_fn {e}")
+        logger.info("-E- unable to convert input to tensor")
+        return None
+
     h = extraction_layer.register_forward_hook(save_output_hook('fvec'))
+
     with torch.no_grad():
-        h_x = model(input_data)
+        h_x = model(torch_arr)
 
     h.remove()
     
-    return activation['fvec']
-
-def output_fn(prediction, output_response_type):
-
-    if type(prediction) == torch.Tensor:
-        prediction = prediction.detach().cpu().numpy().tolist()
-
-    for content_type in utils.parse_accept(output_response_type):
-        if content_type in encoder.SUPPORTED_CONTENT_TYPES:
-            encoded_prediction = encoder.encode(prediction, content_type)
-            if content_type == content_types.CSV:
-                encoded_prediction = encoded_prediction.encode("utf-8")
-            return encoded_prediction
-
-    raise errors.UnsupportedFormatError(output_response_type)
+    return np.squeeze(activation['fvec'])
