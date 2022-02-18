@@ -185,7 +185,12 @@ class FVecsRealTime():
         logger.info(f'Setting up end point: {self.endpoint_name}')
         self.create_endpoint()
 
-    def deploy_endpoint(self, batch_size:int, num_min_workers:int, num_max_workers:int) -> None:
+    def deploy_endpoint(self,
+        batch_size:int,
+        num_min_workers:int,
+        num_max_workers:int,
+        accelerate:bool=False
+    ) -> None:
         env_variables_dict = {
             "SAGEMAKER_TS_MIN_WORKERS": num_min_workers.__str__(),
             "SAGEMAKER_TS_MAX_WORKERS": num_max_workers.__str__(),
@@ -207,12 +212,19 @@ class FVecsRealTime():
         
         logger.info(f"Deploying the model at {self.instance_type}")
         
-        self.predictor = self.pytorch_model.deploy(
-                            initial_instance_count=1,
-                            instance_type=self.instance_type,
-                            serializer=NumpySerializer(),
-                            deserializer=NumpyDeserializer()
-                            )
+        deploy_args = {
+            "initial_instance_count":1,
+            "instance_type":self.instance_type,
+            "serializer":NumpySerializer(),
+            "deserializer":NumpyDeserializer()
+        }
+        
+        if accelerate:
+            deploy_args.update({
+
+            })
+
+        self.predictor = self.pytorch_model.deploy(**deploy_args)
 
     def deploym_predict(self, frms: np.array, mthreading:bool=False) -> np.ndarray:
         fvecs_list = []
@@ -309,7 +321,10 @@ def main(
     check_pytorch_deploy:bool=typer.Option(False, "-cpd", help="Check pytorch deployment"),
     batch_size:int=typer.Option(1, "-bs", help="Batch size"),
     num_min_workers:int=typer.Option(1, "-minw", help="Num min workers"),
-    num_max_workers:int=typer.Option(1, "-maxw", help="Num max workers")
+    num_max_workers:int=typer.Option(1, "-maxw", help="Num max workers"),
+    gpu:bool=typer.Option(False, "-gpu",help="Use GPU"),
+    thread_mode:bool=typer.Option(False, "--threads", help="Use threads in prediction"),
+    accelerate:bool=typer.Option(False, "--accelerate", help="Use Elastic Inference")
 ):
     #mserver = FVecsRealTime(local_model=True, image_uri="pytorch-local:latest")
     
@@ -325,6 +340,11 @@ def main(
         'model_s3_path' : 's3://amagitornado-test/Models/resnet18-fvecs/model.tar.gz',
         'local_model' : local_model
     }
+    
+    if gpu:
+        docker_image = "763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:1.9.1-gpu-py38-cu111-ubuntu20.04"
+    else:
+        docker_image = "763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:1.10.0-cpu-py38"
     
     if docker_image is not None:
         server_config.update({'image_uri' : docker_image})
@@ -381,7 +401,7 @@ def main(
         
         start_predict = time.perf_counter()
         #preds = mserver.deploym_predict(np_array)
-        preds = mserver.deploym_predict_thread(np_array)
+        preds = mserver.deploym_predict(np_array, mthreading=thread_mode)
         elapsed_time = time.perf_counter() - start_predict
         logger.info(f"Got back preds ({preds.shape}) in {elapsed_time:.2f} seconds")
 
