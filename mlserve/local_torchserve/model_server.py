@@ -110,11 +110,20 @@ def launch_docker_server(
     
     cwd = Path('.').resolve().__str__()
 
-    docker_cmd = f"docker run --rm -it -p 8080:8080 -p 8081:8081 --name tsrv  \
-                    -v {cwd}/model_store:/home/model-server/model_store \
-                    -v {cwd}/config.properties:/home/model-server/config.properties \
-                    763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:1.10.0-cpu-py38-ubuntu20.04-e3 "
-                    #pytorch/torchserve:latest-cpu "
+    if docker_image.__contains__("cpu"):
+        logger.info("Launching a CPU image")
+        docker_cmd = f"docker run --rm -it -p 8080:8080 -p 8081:8081 --name tsrv  \
+                        -v {cwd}/model_store:/home/model-server/model_store \
+                        -v {cwd}/config.properties:/home/model-server/config.properties \
+                        {docker_image} "
+                        #763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:1.10.0-cpu-py38-ubuntu20.04-e3 "
+                        #pytorch/torchserve:latest-cpu "
+    else:
+        logger.info("Launching a GPU image")
+        docker_cmd = f"docker run --gpus all --rm -it -p 8080:8080 -p 8081:8081 --name tsrv  \
+                        -v {cwd}/model_store:/home/model-server/model_store \
+                        -v {cwd}/config.properties:/home/model-server/config.properties \
+                        {docker_image} "
 
     launch_cmd = docker_cmd + f"torchserve --start --foreground \
                     --model-store /home/model-server/{model_store} \
@@ -137,7 +146,8 @@ def regen_launch(
     ts_config_file:Optional[str]=typer.Option(None, "-ts", help="TS config file"),
     batch_size:int=typer.Option(1, "-bs", help="batch size"),
     min_workers:int=typer.Option(1, "-minw", help="minimum workers"),
-    max_workers:int=typer.Option(None, "-maxw", help="maximum workers")
+    max_workers:int=typer.Option(None, "-maxw", help="maximum workers"),
+    gpu:bool=typer.Option(False, "-gpu", help="Run GPU image")
 ) -> None:
 
     mar_file_path = regen_mar(
@@ -165,10 +175,16 @@ def regen_launch(
         
     logger.info(f"Config file used: {ts_config_file}")
 
+    if gpu:
+        image = "763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:1.9.1-gpu-py38-cu111-ubuntu20.04"
+    else:
+        image = "763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:1.10.0-cpu-py38"
+
     launch_docker_server(
         model_name=model_name,
         model_store=model_store,
-        ts_config_file=ts_config_file
+        ts_config_file=ts_config_file,
+        docker_image=image
     )
 
 if __name__ == '__main__':
