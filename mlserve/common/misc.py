@@ -1,4 +1,5 @@
 import io
+import sys
 import zlib
 import time
 from functools import wraps
@@ -13,6 +14,8 @@ from torchvision import models
 from mlserve.common.logger import logger
 from sagemaker.serializers import NumpySerializer
 from sagemaker.deserializers import NumpyDeserializer
+
+from decord import VideoLoader, cpu
 
 def stopwatch(func:Callable) -> Callable:
     @wraps(func)
@@ -53,3 +56,22 @@ def uncompress_nparr(bytestring: bytes) -> np.ndarray:
 
 def serialize_sgm_naprr(nparr: np.ndarray) -> bytes:
     return NumpySerializer().serialize(nparr)
+
+def get_video_batch_object(video_loc:str, batch_size:int=500):
+
+    if not Path(video_loc).exists():
+        logger.error(f"Missing file : {video_loc}")
+        sys.exit()
+
+    # Resizing images to resnet requirements
+    vid_batches = VideoLoader(
+        [video_loc],
+        ctx=[cpu(0)],
+        shape=(batch_size, 224, 224, 3),
+        interval=0,
+        skip=5,
+        shuffle=0
+    )
+    print('Total batches:', len(vid_batches))
+    
+    return vid_batches
