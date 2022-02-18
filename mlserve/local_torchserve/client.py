@@ -9,24 +9,18 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
 import typer
 
-import msgpack
-import msgpack_numpy as m
-m.patch()
-
 import asyncio
 import aiohttp
 
 from decord import VideoLoader, cpu
 
-from typing import Optional
-
 from sagemaker.deserializers import BytesDeserializer
 
 from mlserve.common.logger import logger
 from mlserve.common.misc import compress_nparr, uncompress_nparr, stopwatch
- 
+
 app = typer.Typer(name="Test local torch serve deployment", add_completion=False)
- 
+
 def get_video_batch_object(video_loc:str, batch_size:int=500):
 
     if not Path(video_loc).exists():
@@ -45,43 +39,6 @@ def get_video_batch_object(video_loc:str, batch_size:int=500):
     print('Total batches:', len(vid_batches))
     
     return vid_batches
-
-@stopwatch
-def compute_fvecs(
-    vid_batches: VideoLoader,
-    pred_url:str="http://localhost:8080/predictions/resnet18"
-) -> np.ndarray:
-
-    print(json.loads(requests.get('http://localhost:8081/models').content))
-
-    num_batches = len(vid_batches)
-    
-    fvecs_list = []
-    num_frms = 0
-    pbar = tqdm(vid_batches, total=num_batches, position=0, desc="Byte Array gen", leave=True)
-    for vid_batch, _ in pbar:
-        logger.debug(f"Adding a batch of shape {vid_batch.shape} to byte array")
-        byt_str, _, _ = compress_nparr(vid_batch.asnumpy())
-        num_frms += vid_batch.asnumpy().shape[0]
-        response = requests.post(url=pred_url, data=byt_str)
-        if response.status_code == 200:
-            fvecs_list.append(uncompress_nparr(response.content))
-        else:
-            logger.error('Issue in Server processing the input')
-            raise typer.Exit()
-        
-    #logger.info(f"Divided the frms into {num_batches} batches of size ~ {round(sys.getsizeof(byarrs[0])/1024**2,2)} MB")
-
-    fvecs_array = np.vstack(fvecs_list)
-    
-    if num_frms != fvecs_array.shape[0]:
-        logger.error(f"Input frames {num_frms} not returned by server {fvecs_array.shape}")
-        raise typer.Exit()
-
-    logger.info(f"fvec dimensions {fvecs_array.shape} and num frames given {num_frms}")
-    
-    return fvecs_array
-
 
 async def do_post(session, url, image):
     async with session.post(url, data=image) as response:
@@ -106,9 +63,10 @@ def get_batch_predictions(data_batch, model_url):
     return predictions
 
 @stopwatch
-def compute_fvecs_async(
+def compute_fvecs(
     vid_batches: VideoLoader,
-    pred_url:str="http://localhost:8080/predictions/resnet18"
+    pred_url:str="http://localhost:8080/predictions/resnet18",
+    pred_mode:str='asyncio'
 ) -> np.ndarray:
 
     print(json.loads(requests.get('http://localhost:8081/models').content))
@@ -127,15 +85,32 @@ def compute_fvecs_async(
     #logger.info(f"Divided the frms into {num_batches} batches of size ~ {round(sys.getsizeof(byarrs[0])/1024**2,2)} MB")
 
     pred_start = time.perf_counter()
-    # Using threadpool
-    #with ThreadPoolExecutor(max_workers=4) as executor:
-    #    batch_fvecs_list:List[requests.Response] = list(executor.map(lambda byarr: requests.post(pred_url, data=byarr), bytearray_list))
-    #fvecs_list:List[np.ndarray] = [uncompress_nparr(resp_ele.content) for resp_ele in batch_fvecs_list]
+    if pred_mode == "asyncio":
+        logger.info("Asyncio prediction mode")
+        
+        # Using asyncio
+        batch_fvecs_list = get_batch_predictions(data_batch=bytearray_list, model_url=pred_url)
+        logger.info(f"return type : {type(batch_fvecs_list[0])}")
+        fvecs_list:List[np.ndarray] = [uncompress_nparr(resp_ele) for resp_ele in batch_fvecs_list]
+    elif pred_mode == "threads":
+        logger.info("Thread pool based prediction")
+        # Using threadpool
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            batch_fvecs_list:List[requests.Response] = list(executor.map(lambda byarr: requests.post(pred_url, data=byarr), bytearray_list))
+        fvecs_list:List[np.ndarray] = [uncompress_nparr(resp_ele.content) for resp_ele in batch_fvecs_list]
+    else:
+        logger.info("Sequential prediction mode")
+        # serial prediction mode
+        fvecs_list:List = []
+        pbar = tqdm(bytearray_list, total=len(bytearray_list), desc="Prediction")
+        for byarray in pbar:
+             response = requests.post(url=pred_url, data=byarray)
+             if response.status_code == 200:
+                 fvecs_list.append(uncompress_nparr(response.content))
+             else:
+                 logger.error('Issue in Server processing the input')
+                 raise typer.Exit()
 
-    # Using asyncio
-    batch_fvecs_list = get_batch_predictions(data_batch=bytearray_list, model_url=pred_url)
-    logger.info(f"return type : {type(batch_fvecs_list[0])}")
-    fvecs_list:List[np.ndarray] = [uncompress_nparr(resp_ele) for resp_ele in batch_fvecs_list]
     logger.info(fvecs_list[0].shape)
 
     fvecs_array = np.concatenate(fvecs_list)
@@ -155,11 +130,16 @@ def main(
     video_loc:Path=typer.Option(..., "-i", help="Input Video location", exists=True),
     batch_size:int=typer.Option(50, "-n", help="Number of batches"),
     pred_url:str=typer.Option('http://localhost:8080/predictions/resnet18'),
-    num_frames:Optional[int]=typer.Option(None, "-nf", help="number of frames")
+    num_frames:Optional[int]=typer.Option(None, "-nf", help="number of frames"),
+    pred_mode:str=typer.Option('asyncio', "-pm", help="Prediction mode -> (asyncio|threads|serial)")
 ):
+    if pred_mode not in ["asyncio", "threads", "serial"]:
+        logger.error(f"Enter a valid prediction mode, ({pred_mode}) is not valid")
+        raise typer.Exit()
+
     vb = get_video_batch_object(video_loc=video_loc.__str__(), batch_size=batch_size)
-    #compute_fvecs(vb, pred_url=pred_url)
-    compute_fvecs_async(vb, pred_url=pred_url)
+    compute_fvecs(vb, pred_url=pred_url, pred_mode=pred_mode)
+    #compute_fvecs_async(vb, pred_url=pred_url)
     
 if __name__ == '__main__':
     typer.run(main)
